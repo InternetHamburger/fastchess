@@ -634,8 +634,10 @@ void parseRepeat(const std::vector<std::string>& params, ArgumentData& argument_
 
 void parseVariant(std::string_view value, ArgumentData& argument_data) {
     std::string val(value);
-    if (val == "fischerandom") argument_data.tournament_config.variant = VariantType::FRC;
-    if (val != "fischerandom" && val != "standard") throw fastchess_exception("Unknown variant.");
+    if (val == "standard") argument_data.tournament_config.variant = VariantType::STANDARD;
+    else if (val == "fischerandom") argument_data.tournament_config.variant = VariantType::FRC;
+    else if (val == "atomic") argument_data.tournament_config.variant = VariantType::ATOMIC;
+    else throw fastchess_exception("Unknown variant.");
 }
 
 void parseTournament(std::string_view value, ArgumentData& argument_data) {

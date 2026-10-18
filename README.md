@@ -2,6 +2,8 @@
 
 [![Fastchess](https://github.com/Disservin/fastchess/actions/workflows/fastchess.yml/badge.svg?branch=master)](https://github.com/Disservin/fastchess/actions/workflows/fastchess.yml)
 
+Big thanks to [Silverrzz](https://github.com/Silverrzz) for writing a fastchess fork that supports duckchess, I would not have been able to write this atomic fork without it.
+
 Fastchess is a versatile command-line tool designed for running chess engine
 tournaments.  
 Written primarily in C++17, it utilizes [doctest](https://github.com/doctest/doctest) as its testing

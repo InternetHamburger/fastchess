@@ -356,6 +356,17 @@ bool UciEngine::refreshUci() {
         }
     }
 
+    if (config_.variant == VariantType::ATOMIC) {
+        const auto variant = uci_options_.getOption("UCI_Variant");
+        if (variant.has_value()) {
+            if (!variant.value()->isValid("atomic")) {
+                Logger::print<Logger::Level::WARN>("Engine {} does not support UCI_Variant atomic", config_.name);
+                return false;
+            }
+            sendSetoption("UCI_Variant", "atomic");
+        }
+    }
+
     if (config_.variant == VariantType::FRC) {
         try {
             sendSetoption("UCI_Chess960", "true");
