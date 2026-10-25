@@ -54,6 +54,10 @@ bool isFen(const std::string& line) { return line.find(';') == std::string::npos
 
 std::string pvWarningFormat(PvWarning warning) {
     switch (warning) {
+        case PvWarning::AtomicPvDoesNotEndWithWin:
+            return "Warning; Atomic Chess mating PV does not end with the claimed winner - from {}";
+        case PvWarning::ContinuesAfterVariantEnd:
+            return "Warning; PV continues after Atomic Chess game end - move {} from {}";
         case PvWarning::IllegalMove:
             return "Warning; Illegal PV move - move {} from {}";
         case PvWarning::ContinuesAfterThreefoldRepetition:
@@ -80,6 +84,7 @@ std::string pvWarningFormat(PvWarning warning) {
 
 bool pvWarningHasMove(PvWarning warning) {
     switch (warning) {
+        case PvWarning::ContinuesAfterVariantEnd:
         case PvWarning::IllegalMove:
         case PvWarning::ContinuesAfterThreefoldRepetition:
         case PvWarning::ContinuesAfterFiftyMoveRule:
@@ -87,6 +92,7 @@ bool pvWarningHasMove(PvWarning warning) {
         case PvWarning::ContinuesAfterStalemate:
         case PvWarning::BestmoveMismatch:
             return true;
+        case PvWarning::AtomicPvDoesNotEndWithWin:
         case PvWarning::IncompleteMatingPv:
         case PvWarning::TooLongMatingPv:
         case PvWarning::MatingPvDoesNotEndWithCheckmate:
@@ -177,6 +183,7 @@ std::optional<PvCheckResult> checkParsedPvLine(Board board, const engine::UciInf
             return PvCheckResult{PvWarning::IllegalMove, move};
         }
 
+        if (!uci::isUciMove(move)) return PvCheckResult{PvWarning::IllegalMove, move};
         movegen::legalmoves(moves, board);
         const auto uci_move     = uci::uciToMove(board, move);
         const auto illegal_move = std::find(moves.begin(), moves.end(), uci_move) == moves.end();
@@ -214,6 +221,28 @@ std::optional<PvCheckResult> checkParsedPvLine(Board board, const engine::UciInf
     return std::nullopt;
 }
 
+std::optional<PvCheckResult> checkAtomicPvLine(rules::Position board, const engine::UciInfo& info, bool check_mate_pvs) {
+    if (info.pv.empty()) return std::nullopt;
+    const auto starting_side = board.sideToMove();
+    for (const auto& move : info.pv) {
+        const auto result = board.isGameOver();
+        if (result.second != GameResult::NONE) {
+            return PvCheckResult{PvWarning::ContinuesAfterVariantEnd, move};
+        }
+        if (!board.isLegal(move)) return PvCheckResult{PvWarning::IllegalMove, move};
+        board.play(move);
+    }
+    if (check_mate_pvs && info.score.has_value() && info.score->isMate() && !info.isBound()) {
+        const auto result = board.isGameOver();
+        if (result.second != GameResult::WIN && result.second != GameResult::LOSE)
+            return PvCheckResult{PvWarning::AtomicPvDoesNotEndWithWin, {}};
+        const auto winner = result.second == GameResult::WIN ? board.sideToMove() : ~board.sideToMove();
+        const auto expected = info.score->value > 0 ? starting_side : ~starting_side;
+        if (winner != expected) return PvCheckResult{PvWarning::AtomicPvDoesNotEndWithWin, {}};
+    }
+    return std::nullopt;
+}
+
 std::optional<PvCheckResult> checkParsedBestmovePv(const engine::UciInfo& info, std::string_view best_move) {
     if (best_move.empty() || info.isBound() || info.pv.empty() || best_move == info.pv[0]) {
         return std::nullopt;
@@ -232,11 +261,11 @@ std::optional<PvCheckResult> checkBestmovePv(std::string_view info, std::string_
 
 Match::Match(const book::Opening& opening)
     : opening_(opening),
+      board_(config::TournamentConfig->variant),
       draw_tracker_(config::TournamentConfig->draw),
       resign_tracker_(config::TournamentConfig->resign),
       maxmoves_tracker_(config::TournamentConfig->maxmoves),
       tb_adjudication_tracker_(config::TournamentConfig->tb_adjudication) {
-    board_.set960(config::TournamentConfig->variant == VariantType::FRC);
 
     const auto success = isFen(opening_.fen_epd) ? board_.setFen(opening_.fen_epd) : board_.setEpd(opening_.fen_epd);
 
@@ -256,8 +285,8 @@ Match::Match(const book::Opening& opening)
     start_position_ = fen == chess::constants::STARTPOS ? "startpos" : fen;
 
     const auto insert_move = [&](const auto& opening_move) {
-        const auto move = uci::moveToUci(opening_move, board_.chess960());
-        board_.makeMove<true>(opening_move);
+        const auto move = uci::moveToUci(opening_move, board_.orthodox().chess960());
+        board_.play(move);
 
         MoveData move_data{move};
 
@@ -439,9 +468,21 @@ bool Match::playMove(Player& us, Player& them) {
         them.setWon();
     }
 
+    if (gameover.second == GameResult::WIN) {
+        us.setWon();
+        them.setLost();
+    }
+
     if (gameover.first != GameResultReason::NONE) {
         data_.termination = MatchTermination::NORMAL;
-        data_.reason      = convertChessReason((~board_.sideToMove()).longStr(), gameover.first);
+        if (board_.isAtomic() && gameover.first == GameResultReason::CHECKMATE) {
+            const auto winner = gameover.second == GameResult::WIN ? board_.sideToMove() : ~board_.sideToMove();
+            data_.reason = fmt::format("{} wins by king explosion", winner.longStr());
+        } else if (board_.isAtomic() && gameover.first == GameResultReason::STALEMATE) {
+            data_.reason = fmt::format("{} wins by having no legal move", board_.sideToMove().longStr());
+        } else {
+            data_.reason = convertChessReason((~board_.sideToMove()).longStr(), gameover.first);
+        }
         return false;
     }
 
@@ -518,8 +559,7 @@ bool Match::playMove(Player& us, Player& them) {
     }
 
     const auto best_move = us.engine.bestmove(status.code == engine::process::Status::OK);
-    const auto move      = best_move && uci::isUciMove(*best_move) ? uci::uciToMove(board_, *best_move) : Move::NO_MOVE;
-    const auto legal     = isLegal(move);
+    const auto legal = best_move && isLegal(*best_move);
 
     const auto timeout    = us.hasTimeControl() ? !us.getTimeControl().updateTime(elapsed_ms) : false;
     const auto timeleft   = us.hasTimeControl() ? us.getTimeControl().getTimeLeft() : 0;
@@ -556,7 +596,7 @@ bool Match::playMove(Player& us, Player& them) {
         return false;
     }
 
-    board_.makeMove<true>(move);
+    board_.play(*best_move);
 
     // CuteChess uses plycount/2 for its movenumber, which is wrong for epd books as it doesnt take
     // into account the fullmove counter of the starting FEN, leading to different behavior between
@@ -574,7 +614,7 @@ bool Match::playMove(Player& us, Player& them) {
 
     maxmoves_tracker_.update();
 
-    checkMateScoreSignMismatch(them, us, board_, start_position_, data_);
+    if (!board_.isAtomic()) checkMateScoreSignMismatch(them, us, board_.orthodox(), start_position_, data_);
 
     return true;
 }
@@ -595,12 +635,7 @@ bool Match::validConnection(Player& us, Player& them) {
     return true;
 }
 
-bool Match::isLegal(Move move) const noexcept {
-    Movelist moves;
-    movegen::legalmoves(moves, board_);
-
-    return std::find(moves.begin(), moves.end(), move) != moves.end();
-}
+bool Match::isLegal(std::string_view move) const { return board_.isLegal(move); }
 
 std::pair<chess::GameResultReason, chess::GameResult> Match::isGameOver() const { return board_.isGameOver(); }
 
@@ -692,7 +727,8 @@ void Match::verifyPvLines(const Player& us, const std::string& best_move) {
     for (const auto info : info_lines) {
         parsed_lines.emplace_back(info, engine::UciEngine::parseInfo(*info));
         const auto result =
-            checkParsedPvLine(board_, parsed_lines.back().second, config::TournamentConfig->check_mate_pvs);
+            board_.isAtomic() ? checkAtomicPvLine(board_, parsed_lines.back().second, config::TournamentConfig->check_mate_pvs) :
+            checkParsedPvLine(board_.orthodox(), parsed_lines.back().second, config::TournamentConfig->check_mate_pvs);
 
         if (!result.has_value()) {
             continue;
@@ -744,8 +780,8 @@ void Match::verifyPvLines(const Player& us, const std::string& best_move) {
 bool Match::adjudicate(Player& us, Player& them) noexcept {
     // Start with TB adjudication, if applicable, since this provides a sort of 'exact' result, whereas the other
     // adjudication methods are more heuristic.
-    if (config::TournamentConfig->tb_adjudication.enabled && tb_adjudication_tracker_.adjudicatable(board_)) {
-        const GameResult result = tb_adjudication_tracker_.adjudicate(board_);
+    if (config::TournamentConfig->tb_adjudication.enabled && !board_.isAtomic() && tb_adjudication_tracker_.adjudicatable(board_.orthodox())) {
+        const GameResult result = tb_adjudication_tracker_.adjudicate(board_.orthodox());
         const auto desired_adju = config::TournamentConfig->tb_adjudication.result_type;
 
         if ((result == GameResult::WIN || result == GameResult::LOSE) &&

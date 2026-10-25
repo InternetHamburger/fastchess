@@ -31,7 +31,7 @@ class PgnBuilder {
 
    private:
     // Converts a UCI move to either SAN, LAN or keeps it as UCI
-    [[nodiscard]] std::string moveNotation(chess::Board& board, const std::string& move) const noexcept;
+    [[nodiscard]] std::string moveNotation(rules::Position& board, const std::string& move) const;
 
     std::string createComment(const MoveData& move, const MoveData& next_move, bool illegal, bool last) noexcept;
 

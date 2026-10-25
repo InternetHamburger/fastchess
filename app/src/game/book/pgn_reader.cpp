@@ -8,6 +8,7 @@
 
 #include <core/logger/logger.hpp>
 #include <game/book/opening.hpp>
+#include <game/variant/position.hpp>
 #include <types/exception.hpp>
 
 #ifdef USE_ZLIB
@@ -18,10 +19,10 @@ namespace fastchess::book {
 
 class PGNVisitor : public chess::pgn::Visitor {
    public:
-    PGNVisitor(std::vector<Opening>& pgns, int plies_limit, bool is_frc)
-        : pgns_(pgns), plies_limit_(plies_limit), is_frc_(is_frc) {
-        board_.set960(is_frc_);
-    }
+    PGNVisitor(std::vector<Opening>& pgns, int plies_limit, bool is_frc, bool is_atomic)
+        : pgns_(pgns), board_(is_atomic ? VariantType::ATOMIC : (is_frc ? VariantType::FRC : VariantType::STANDARD)),
+          plies_limit_(plies_limit) {}
+
     virtual ~PGNVisitor() {}
 
     void startPgn() override {
@@ -34,8 +35,12 @@ class PGNVisitor : public chess::pgn::Visitor {
     }
 
     void header(std::string_view key, std::string_view value) override {
+        if (key == "Variant") {
+            const bool atomic = value == "Atomic" || value == "atomic" || value == "Atomic Chess";
+            if (atomic != board_.isAtomic()) throw fastchess_exception("PGN variant does not match selected variant");
+        }
         if (key == "FEN") {
-            board_.setFen(value);
+            if (!board_.setFen(value)) throw fastchess_exception("Invalid FEN in PGN opening book");
             pgn_.fen_epd = value;
         }
     }
@@ -46,17 +51,27 @@ class PGNVisitor : public chess::pgn::Visitor {
         if (early_stop_) return;
         if (ply_count_++ >= plies_limit_ && plies_limit_ != -1) return;
 
+        if (board_.isAtomic()) {
+            const auto turn = board_.parseNotation(move);
+            board_.play(turn);
+            if (board_.isGameOver().second != chess::GameResult::NONE) {
+                early_stop_ = true;
+                return;
+            }
+            return;
+        }
+
         chess::Move move_i;
 
         try {
-            move_i = chess::uci::parseSan(board_, move);
+            move_i = chess::uci::parseSan(board_.orthodox(), move);
         } catch (const chess::uci::SanParseError& e) {
             LOG_ERR("Failed to parse move: {}", e.what());
             early_stop_ = true;
             return;
         }
 
-        board_.makeMove<true>(move_i);
+        board_.orthodox().makeMove(move_i);
 
         if (board_.isGameOver().second != chess::GameResult::NONE) {
             early_stop_ = true;
@@ -71,16 +86,16 @@ class PGNVisitor : public chess::pgn::Visitor {
    private:
     std::vector<Opening>& pgns_;
     Opening pgn_;
-    chess::Board board_;
+    rules::Position board_;
     const int plies_limit_;
     int ply_count_   = 0;
     bool is_frc_     = false;
     bool early_stop_ = false;
 };
 
-PgnReader::PgnReader(const std::string& pgn_file_path, int plies_limit, bool is_frc)
+PgnReader::PgnReader(const std::string& pgn_file_path, int plies_limit, bool is_frc, bool is_atomic)
     : file_name_(pgn_file_path), plies_limit_(plies_limit) {
-    auto vis        = std::make_unique<PGNVisitor>(pgns_, plies_limit_, is_frc);
+    auto vis        = std::make_unique<PGNVisitor>(pgns_, plies_limit_, is_frc, is_atomic);
     bool is_gzipped = file_name_.size() >= 3 && file_name_.substr(file_name_.size() - 3) == ".gz";
 
     std::unique_ptr<std::istream> input_stream;

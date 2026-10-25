@@ -10,6 +10,7 @@
 #include <cli/cli.hpp>
 #include <core/config/config.hpp>
 #include <game/book/opening_book.hpp>
+#include <game/variant/position.hpp>
 #include <matchmaking/player.hpp>
 #include <matchmaking/syzygy.hpp>
 #include <types/match_data.hpp>
@@ -18,6 +19,8 @@ namespace fastchess {
 std::string formatTimeoutReason(std::string_view color, int64_t overrun_ms);
 
 enum class PvWarning {
+    ContinuesAfterVariantEnd,
+    AtomicPvDoesNotEndWithWin,
     IllegalMove,
     ContinuesAfterThreefoldRepetition,
     ContinuesAfterFiftyMoveRule,
@@ -210,12 +213,12 @@ class Match {
 
     [[nodiscard]] static std::string convertChessReason(const std::string&, chess::GameResultReason) noexcept;
 
-    bool isLegal(chess::Move move) const noexcept;
+    bool isLegal(std::string_view move) const;
 
     const book::Opening& opening_;
 
     MatchData data_     = {};
-    chess::Board board_ = chess::Board();
+    rules::Position board_;
 
     DrawTracker draw_tracker_;
     ResignTracker resign_tracker_;

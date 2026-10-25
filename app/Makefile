@@ -36,6 +36,7 @@ SRC_FILES        := \
 	$(SRCDIR)/game/pgn/pgn_builder.cpp \
 	$(SRCDIR)/game/pgn/openings_data.cpp \
 	$(SRCDIR)/game/timecontrol/timecontrol.cpp \
+	$(SRCDIR)/game/variant/position.cpp \
 	$(SRCDIR)/main.cpp \
 	$(SRCDIR)/matchmaking/syzygy.cpp \
 	$(SRCDIR)/matchmaking/elo/elo_pentanomial.cpp \
