@@ -8,6 +8,7 @@
 #include <chess.hpp>
 #include <types/enums.hpp>
 #include <types/exception.hpp>
+#include <core/logger/logger.hpp>
 
 namespace fastchess::rules {
 
@@ -62,6 +63,8 @@ class Position {
         if (variant == VariantType::FRC) {
             throw fastchess_exception("Atomic does not support fischer random");
         }
+        chess_.set960(false);
+        if (isAtomic()) atomic_.emplace();
     }
     bool isAtomic() const { return variant_ == VariantType::ATOMIC; }
     bool setFen(std::string_view fen) { return isAtomic() ? atomic_->setFen(fen) : chess_.setFen(fen); }
