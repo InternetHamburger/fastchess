@@ -260,10 +260,6 @@ void AtomicPosition::applyPiece(const AtomicTurn& move) {
         squares_[move.to - dir] = 0;
         explode(move.to);
     }
-    if (target) {
-        explode(move.to);
-
-    }
     if (lower(piece) == 'k') {
         rights_ &= white_ ? ~3 : ~12;
     }
@@ -276,6 +272,9 @@ void AtomicPosition::applyPiece(const AtomicTurn& move) {
     squares_[move.to] = move.promotion ? (white_ ? char(std::toupper(move.promotion)) : move.promotion) : piece;
     ep_ = pawn && std::abs(move.to - move.from) == 16 ? (move.to + move.from) / 2 : -1;
     halfmove_ = pawn || target ? 0 : halfmove_ + 1;
+    if (target) {
+        explode(move.to);
+    }
 }
 
 bool AtomicPosition::isLegal(const AtomicTurn& move) const {
