@@ -318,7 +318,7 @@ bool AtomicPosition::hasMove() const {
     for (int from = 0; from < 64; ++from) {
         if (!squares_[from] || whitePiece(squares_[from]) != white_) continue;
         for (int to = 0; to < 64; ++to) {
-            AtomicTurn move{from, to, -1};
+            AtomicTurn move{from, to, 0};
             if (lower(squares_[from]) == 'p' && to / 8 == (white_ ? 7 : 0)) move.promotion = 'q';
             if (pieceLegal(move)) return true;
         }

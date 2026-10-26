@@ -60,7 +60,7 @@ class AtomicPosition {
 class Position {
    public:
     explicit Position(VariantType variant = VariantType::STANDARD) : variant_(variant) {
-        if (variant == VariantType::FRC) {
+        if (isAtomic() && variant == VariantType::FRC) {
             throw fastchess_exception("Atomic does not support fischer random");
         }
         chess_.set960(false);
