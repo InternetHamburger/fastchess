@@ -256,6 +256,8 @@ void AtomicPosition::applyPiece(const AtomicTurn& move) {
     const char piece = squares_[move.from], target = squares_[move.to];
     const bool pawn = lower(piece) == 'p';
     const int dir = white_ ? 8 : -8;
+    squares_[move.from] = 0;
+    squares_[move.to] = move.promotion ? (white_ ? char(std::toupper(move.promotion)) : move.promotion) : piece;
     if (pawn && move.to == ep_ && !target && move.from % 8 != move.to % 8) {
         squares_[move.to - dir] = 0;
         explode(move.to);
@@ -268,8 +270,6 @@ void AtomicPosition::applyPiece(const AtomicTurn& move) {
         if (move.from == rook || move.to == rook || (target && chess::attacks::king(move.to) & 1ull << move.to)) rights_ &= ~(1 << i);
     }
     if (lower(target) == 'k') rights_ &= white_ ? ~12 : ~3;
-    squares_[move.from] = 0;
-    squares_[move.to] = move.promotion ? (white_ ? char(std::toupper(move.promotion)) : move.promotion) : piece;
     ep_ = pawn && std::abs(move.to - move.from) == 16 ? (move.to + move.from) / 2 : -1;
     halfmove_ = pawn || target ? 0 : halfmove_ + 1;
     if (target) {
