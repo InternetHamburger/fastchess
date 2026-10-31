@@ -479,7 +479,7 @@ bool Match::playMove(Player& us, Player& them) {
             const auto winner = gameover.second == GameResult::WIN ? board_.sideToMove() : ~board_.sideToMove();
             data_.reason = fmt::format("{} wins by king explosion", winner.longStr());
         } else if (board_.isAtomic() && gameover.first == GameResultReason::STALEMATE) {
-            data_.reason = fmt::format("{} wins by having no legal move", board_.sideToMove().longStr());
+            data_.reason = fmt::format("{} draws by stalemate", board_.sideToMove().longStr());
         } else {
             data_.reason = convertChessReason((~board_.sideToMove()).longStr(), gameover.first);
         }

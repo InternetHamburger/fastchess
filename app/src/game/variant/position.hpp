@@ -42,7 +42,7 @@ class AtomicPosition {
     bool pieceLegal(const AtomicTurn& move) const;
     void explode(int sq);
     void applyPiece(const AtomicTurn& move);
-    bool kingCaptured(const AtomicTurn& move, const chess::Bitboard& enemy_occ) const;
+    bool isSquareAttacked (int sq, bool ignore_king = false) const;
     bool hasMove() const;
     std::string repetitionKey() const;
     std::string san(const AtomicTurn& move, bool long_notation) const;

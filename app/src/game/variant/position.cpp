@@ -226,10 +226,6 @@ bool AtomicPosition::pieceLegal(const AtomicTurn& move) const {
     return true;
 }
 
-bool AtomicPosition::kingCaptured(const AtomicTurn& move, const chess::Bitboard& enemy_occ) const {
-    return lower(squares_[move.to]) == 'k' || chess::attacks::king(move.to) & enemy_occ;
-}
-
 void AtomicPosition::explode(int sq) {
     chess::Bitboard exploded_bb = chess::attacks::king(sq);
     squares_[sq] = 0;
@@ -267,7 +263,7 @@ void AtomicPosition::applyPiece(const AtomicTurn& move) {
     }
     for (int i = 0; i < 4; ++i) {
         const int rook = rooks_[i];
-        if (move.from == rook || move.to == rook || (target && chess::attacks::king(move.to) & 1ull << move.to)) rights_ &= ~(1 << i);
+        if (move.from == rook || move.to == rook || (target && chess::attacks::king(move.to) & 1ull << rook)) rights_ &= ~(1 << i);
     }
     if (lower(target) == 'k') rights_ &= white_ ? ~12 : ~3;
     ep_ = pawn && std::abs(move.to - move.from) == 16 ? (move.to + move.from) / 2 : -1;
@@ -277,13 +273,200 @@ void AtomicPosition::applyPiece(const AtomicTurn& move) {
     }
 }
 
+bool AtomicPosition::isSquareAttacked(int sq, bool ignore_king) const {
+    int friendly_king_sq = -1;
+    int enemy_king_sq = -1;
+    for (int i = 0; i < 64; ++i) {
+        if (lower(squares_[i]) == 'k') {
+            if (whitePiece(squares_[i]) == white_) {
+                friendly_king_sq = i;
+            }
+            else {
+                enemy_king_sq = i;
+            }
+        }
+    }
+
+    if (1ull << sq & chess::attacks::king(enemy_king_sq)) {
+        return false;
+    }
+
+    int rank = sq / 8;
+    int file = sq % 8;
+
+    const int left_file = file - 1;
+    const int right_file = file + 1;
+
+    if (right_file < 8){
+        if (white_) {
+            const int new_rank = rank + 1;
+            if (new_rank < 8 && squares_[new_rank * 8 + right_file] == 'p')
+                return true;
+
+        }else {
+            const int new_rank = rank - 1;
+            if (new_rank >= 0 && squares_[new_rank * 8 + right_file] == 'P')
+                return true;
+        }
+    }
+    if (left_file >= 0){
+        if (white_) {
+            const int new_rank = rank + 1;
+            if (new_rank < 8 && squares_[new_rank * 8 + left_file] == 'p')
+                return true;
+
+        }else {
+            const int new_rank = rank - 1;
+            if (new_rank >= 0 && squares_[new_rank * 8 + left_file] == 'P')
+                return true;
+        }
+    }
+
+    chess::Bitboard attacks = chess::attacks::knight(sq);
+    while (attacks) {
+        const int idx = attacks.pop();
+        if (lower(squares_[idx]) == 'n' && whitePiece(squares_[idx]) != white_) {
+            return true;
+        }
+    }
+
+    std::string_view diags = "qb";
+    std::string_view orths = "qr";
+
+    // Right, left, up, down
+    int rank_changes_r[] = {0, 0, 1, -1};
+    int file_changes_r[] = {1, -1, 0, 0};
+
+    for (int direction = 0; direction < 4; direction++)
+    {
+        file = sq % 8;
+        rank = sq / 8;
+        while (1)
+        {
+            file += file_changes_r[direction];
+            rank += rank_changes_r[direction];
+            if (!(file >= 0 && file < 8 && rank >= 0 && rank < 8))
+            {
+                break;
+            }
+            int new_sq = 8 * rank + file;
+
+            if (orths.find(lower(squares_[new_sq])) != std::string_view::npos &&
+                whitePiece(squares_[new_sq]) != white_) {
+                return true;
+            }
+            if (new_sq != friendly_king_sq && ignore_king) {
+                continue;
+            }
+            if (squares_[new_sq]) {
+                break;
+            }
+        }
+    }
+
+    // right-up, left-up, right-down, left-down
+    const int rank_changes_d[] = {1, 1, -1, -1};
+    const int file_changes_d[] = {1, -1, 1, -1};
+
+    for (int direction = 0; direction < 4; direction++)
+    {
+        file = sq % 8;
+        rank = sq / 8;
+        while (1)
+        {
+            file += file_changes_d[direction];
+            rank += rank_changes_d[direction];
+            if (!(file >= 0 && file < 8 && rank >= 0 && rank < 8))
+            {
+                break;
+            }
+            int new_sq = 8 * rank + file;
+
+            if (diags.find(lower(squares_[new_sq])) != std::string_view::npos &&
+                whitePiece(squares_[new_sq]) != white_) {
+                return true;
+            }
+            if (new_sq != friendly_king_sq && ignore_king) {
+                continue;
+            }
+            if (squares_[new_sq]) {
+                break;
+            }
+        }
+    }
+
+    return false;
+}
+
 bool AtomicPosition::isLegal(const AtomicTurn& move) const {
     if (!pieceLegal(move)) return false;
-    if (std::find(squares_.begin(), squares_.end(), 'K') == squares_.end() ||
-        std::find(squares_.begin(), squares_.end(), 'k') == squares_.end()) return false;
 
-    if (lower(squares_[move.from]) == 'p' && move.to == ep_ && !squares_[move.to] &&
-        move.from % 8 != move.to % 8) return true;
+    int king_count = 0;
+    int friendly_king_sq = -1;
+    int enemy_king_sq = -1;
+    for (int i = 0; i < 64; ++i) {
+        if (lower(squares_[i]) == 'k') {
+            if (whitePiece(squares_[i]) == white_) {
+                friendly_king_sq = i;
+            }
+            else {
+                enemy_king_sq = i;
+            }
+            ++king_count;
+        }
+    }
+    if (king_count < 2) {
+        return false;
+    }
+    const char piece = squares_[move.from], target = squares_[move.to];
+    const bool pawn = lower(piece) == 'p';
+    const bool en_passant = pawn && move.to == ep_ && !target && move.from % 8 != move.to % 8;
+    const bool capture = squares_[move.to] || en_passant;
+    const int castle = castlingIndex(move);
+
+    if (1ull << move.to & chess::attacks::king(friendly_king_sq) && capture) {
+        return false;
+    }
+
+    if (1ull << move.to & chess::attacks::king(enemy_king_sq) && capture) {
+        return true;
+    }
+
+    if (castle >= 0) {
+        if (isSquareAttacked(friendly_king_sq))
+            return false;
+        switch (move.to) {
+            case 6:
+                if (isSquareAttacked(5) || isSquareAttacked(6)) return false;
+                break;
+            case 2:
+                if (isSquareAttacked(2) || isSquareAttacked(3)) return false;
+                break;
+            case 62:
+                if (isSquareAttacked(61) || isSquareAttacked(62)) return false;
+                break;
+            case 58:
+                if (isSquareAttacked(58) || isSquareAttacked(59)) return false;
+                break;
+            default:
+                throw std::invalid_argument("Illegal atomic turn: " + toUci(move));
+        }
+    }
+
+    AtomicPosition b{};
+    b.setFen(getFen());
+    b.applyPiece(move);
+    b.white_ = white_;
+
+    for (int i = 0; i < 64; ++i) {
+        if (lower(b.squares_[i]) == 'k' && whitePiece(b.squares_[i]) == white_) {
+            friendly_king_sq = i;
+        }
+    }
+    if (b.isSquareAttacked(friendly_king_sq)) {
+        return false;
+    }
+
     return true;
 }
 
@@ -306,7 +489,7 @@ std::string AtomicPosition::repetitionKey() const {
     bool possible_ep = false;
     if (ep_ >= 0) {
         for (int from = 0; from < 64; ++from) {
-            if (lower(squares_[from]) == 'p' && pieceLegal({from, ep_, -1})) { possible_ep = true; break; }
+            if (lower(squares_[from]) == 'p' && isLegal({from, ep_, -1})) { possible_ep = true; break; }
         }
     }
     if (!possible_ep) fen.replace(fen.find_last_of(' ') + 1, std::string::npos, "-");
@@ -319,7 +502,7 @@ bool AtomicPosition::hasMove() const {
         for (int to = 0; to < 64; ++to) {
             AtomicTurn move{from, to, 0};
             if (lower(squares_[from]) == 'p' && to / 8 == (white_ ? 7 : 0)) move.promotion = 'q';
-            if (pieceLegal(move)) return true;
+            if (isLegal(move)) return true;
         }
     }
     return false;
@@ -330,7 +513,12 @@ std::pair<chess::GameResultReason, chess::GameResult> AtomicPosition::isGameOver
     using Result = chess::GameResult;
     if (std::find(squares_.begin(), squares_.end(), white_ ? 'K' : 'k') == squares_.end()) return {Reason::CHECKMATE, Result::LOSE};
     if (std::find(squares_.begin(), squares_.end(), white_ ? 'k' : 'K') == squares_.end()) return {Reason::CHECKMATE, Result::WIN};
-    if (!hasMove()) return {Reason::STALEMATE, Result::WIN};
+    if (!hasMove()) {
+        int king_sq = std::find(squares_.begin(), squares_.end(), white_ ? 'K' : 'k') - squares_.begin();
+        if (isSquareAttacked(king_sq))
+            return {Reason::CHECKMATE, Result::WIN};
+        return {Reason::STALEMATE, Result::DRAW};
+    }
     if (halfmove_ >= 100) return {Reason::FIFTY_MOVE_RULE, Result::DRAW};
     if (std::count(history_.begin(), history_.end(), repetitionKey()) >= 3) return {Reason::THREEFOLD_REPETITION, Result::DRAW};
     return {Reason::NONE, Result::NONE};
@@ -353,7 +541,7 @@ std::string AtomicPosition::san(const AtomicTurn& move, bool long_notation) cons
                 if (from == move.from || squares_[from] != squares_[move.from]) continue;
                 auto other = move;
                 other.from = from;
-                if (!pieceLegal(other)) continue;
+                if (!isLegal(other)) continue;
                 ambiguous = true;
                 same_file |= from % 8 == move.from % 8;
                 same_rank |= from / 8 == move.from / 8;
